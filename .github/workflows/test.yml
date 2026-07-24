@@ -1,0 +1,45 @@
+name: Test action
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate deterministic screenshots
+        run: |
+          set -euo pipefail
+          mkdir -p ./screenshots
+          convert -size 200x100 xc:steelblue ./screenshots/home.png
+          convert -size 200x100 xc:seagreen ./screenshots/about.png
+          ls -l ./screenshots
+
+      - name: Upload to Snapvisor
+        id: snapvisor
+        uses: ./
+        with:
+          token: ${{ secrets.ARGOS_TOKEN }}
+          directory: ./screenshots
+          build-name: action-e2e
+
+      - name: Assert a build URL was produced
+        run: |
+          set -euo pipefail
+          url='${{ steps.snapvisor.outputs.build-url }}'
+          echo "build-url=${url}"
+          if [ -z "${url}" ]; then
+            echo "::error::Snapvisor action did not produce a build-url output." >&2
+            exit 1
+          fi
+          case "${url}" in
+            http*://*/builds/*) echo "OK: got a Snapvisor build URL: ${url}" ;;
+            *) echo "::error::Unexpected build-url value: ${url}" >&2; exit 1 ;;
+          esac

@@ -1,0 +1,91 @@
+name: Snapvisor Upload
+description: Upload screenshots to Snapvisor for visual regression testing
+branding:
+  icon: camera
+  color: purple
+
+inputs:
+  token:
+    description: >-
+      Snapvisor project token (ARGOS_TOKEN). Optional — tokenless/OIDC setups may
+      omit it and rely on the CLI's tokenless authentication.
+    required: false
+  directory:
+    description: Directory containing the screenshots to upload.
+    required: true
+  build-name:
+    description: >-
+      Name of the build, for running multiple Snapvisor builds in a single CI job.
+    required: false
+  parallel:
+    description: >-
+      Enable parallel mode ("true"/"false"). Run multiple builds and combine them
+      at the end.
+    required: false
+    default: "false"
+  parallel-total:
+    description: The total number of parallel nodes being run.
+    required: false
+  parallel-nonce:
+    description: A unique ID shared by all nodes of a parallel build.
+    required: false
+  reference-branch:
+    description: Branch used as the baseline for screenshot comparison.
+    required: false
+  cli-version:
+    description: Version of @snapvisor/cli to run (npm dist-tag or version).
+    required: false
+    default: latest
+
+outputs:
+  build-url:
+    description: URL of the Snapvisor build created by the upload.
+    value: ${{ steps.upload.outputs.build-url }}
+
+runs:
+  using: composite
+  steps:
+    - id: upload
+      shell: bash
+      env:
+        ARGOS_TOKEN: ${{ inputs.token }}
+        INPUT_DIRECTORY: ${{ inputs.directory }}
+        INPUT_BUILD_NAME: ${{ inputs.build-name }}
+        INPUT_PARALLEL: ${{ inputs.parallel }}
+        INPUT_PARALLEL_TOTAL: ${{ inputs.parallel-total }}
+        INPUT_PARALLEL_NONCE: ${{ inputs.parallel-nonce }}
+        INPUT_REFERENCE_BRANCH: ${{ inputs.reference-branch }}
+        INPUT_CLI_VERSION: ${{ inputs.cli-version }}
+      run: |
+        set -euo pipefail
+
+        if [ -z "${INPUT_DIRECTORY}" ]; then
+          echo "::error::'directory' input is required." >&2
+          exit 1
+        fi
+
+        flags=()
+        [ -n "${INPUT_BUILD_NAME}" ]      && flags+=(--build-name "${INPUT_BUILD_NAME}")
+        [ "${INPUT_PARALLEL}" = "true" ]  && flags+=(--parallel)
+        [ -n "${INPUT_PARALLEL_TOTAL}" ]  && flags+=(--parallel-total "${INPUT_PARALLEL_TOTAL}")
+        [ -n "${INPUT_PARALLEL_NONCE}" ]  && flags+=(--parallel-nonce "${INPUT_PARALLEL_NONCE}")
+        [ -n "${INPUT_REFERENCE_BRANCH}" ] && flags+=(--reference-branch "${INPUT_REFERENCE_BRANCH}")
+
+        log="$(mktemp)"
+        echo "Running: npx --yes @snapvisor/cli@${INPUT_CLI_VERSION} upload ${flags[*]} \"${INPUT_DIRECTORY}\""
+
+        # The CLI prints "Build created: <url>" to stderr via its spinner; capture both streams.
+        npx --yes "@snapvisor/cli@${INPUT_CLI_VERSION}" upload "${flags[@]}" "${INPUT_DIRECTORY}" 2>&1 | tee "${log}"
+
+        build_url="$(grep -oE 'https?://[^[:space:]]+/builds/[0-9]+' "${log}" | head -n1 || true)"
+        echo "build-url=${build_url}" >> "${GITHUB_OUTPUT}"
+
+        if [ -n "${build_url}" ]; then
+          echo "Snapvisor build: ${build_url}"
+          {
+            echo "### Snapvisor"
+            echo "Build: ${build_url}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+        else
+          echo "::warning::Could not parse a build URL from the Snapvisor CLI output." >&2
+        fi
