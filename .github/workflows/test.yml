@@ -18,8 +18,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ./screenshots
-          convert -size 200x100 xc:steelblue ./screenshots/home.png
-          convert -size 200x100 xc:seagreen ./screenshots/about.png
+          node test/gen-screenshots.mjs ./screenshots/home.png steelblue
+          node test/gen-screenshots.mjs ./screenshots/about.png seagreen
           ls -l ./screenshots
 
       - name: Upload to Snapvisor
